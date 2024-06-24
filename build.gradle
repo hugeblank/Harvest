@@ -1,45 +1,90 @@
 plugins {
+    id 'fabric-loom' version '0.11-SNAPSHOT'
+    id 'maven-publish'
     id "com.matthewprenger.cursegradle" version "1.4.0"
-    id 'fabric-loom' version '0.4-SNAPSHOT'
-    id "maven-publish"
+    id "com.modrinth.minotaur" version "2.+"
 }
 
-sourceCompatibility = JavaVersion.VERSION_1_8
-targetCompatibility = JavaVersion.VERSION_1_8
+sourceCompatibility = JavaVersion.VERSION_17
+targetCompatibility = JavaVersion.VERSION_17
 
-group = package_group
-archivesBaseName = "${mod_name}-fabric"
-version = "${mc_version}-${mod_version}"
+archivesBaseName = project.archives_base_name
+version = "${project.mod_version}+${project.minecraft_version}-fabric"
+group = project.maven_group
 
-minecraft {
-    refmapName = mod_name.toLowerCase() + '-refmap.json'
+loom {
+    mixin.defaultRefmapName = archives_base_name.toLowerCase() + '-refmap.json'
 }
 
 repositories {
-
+    maven { url = "https://maven.shedaniel.me/" }
+    maven { url = "https://maven.terraformersmc.com/releases" }
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:${mc_version}"
-    mappings "net.fabricmc:yarn:${mc_version}+build.${mappings_version}:v2"
-    modCompile "net.fabricmc:fabric-loader:${loader_version}"
-    modCompile "net.fabricmc.fabric-api:fabric-api:${api_version}"
+    // To change the versions see the gradle.properties file
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+    modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+    // Fabric API. This is technically optional, but you probably want it anyway.
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_version}"
+
+    // ModMenu
+    modImplementation "com.terraformersmc:modmenu:${project.modmenu_version}"
+
+    // Cloth Config
+    modApi("me.shedaniel.cloth:cloth-config-fabric:${project.cloth_config_version}") {
+        exclude(group: "net.fabricmc.fabric-api")
+    }
 }
 
-task sourcesJar(type: Jar) {
-    from sourceSets.main.allJava
-    classifier = 'sources'
+processResources {
+	inputs.property "version", project.version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": project.version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+    // ensure that the encoding is set to UTF-8, no matter what the system default is
+    // this fixes some edge cases with special characters not displaying correctly
+    // see http://yodaconditions.net/blog/fix-for-java-file-encoding-problems-with-gradle.html
+    it.options.encoding = "UTF-8"
+
+    // Minecraft 1.18 (1.18-pre2) upwards uses Java 17.
+    it.options.release = 17
+}
+
+java {
+    // Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
+    // if it is present.
+    // If you remove this line, sources will not be generated.
+    withSourcesJar()
+}
+
+jar {
+    from("LICENSE.txt") {
+        rename { "${it}_${project.archivesBaseName}" }
+    }
 }
 
 publishing {
     tasks.publish.dependsOn 'build'
+
     publications {
         mavenJava(MavenPublication) {
-            artifact remapJar
-            artifact sourcesJar
+            from components.java
         }
     }
+
+    // See https://docs.gradle.org/current/userguide/publishing_maven.html for information on how to set up publishing.
     repositories {
+        // Add repositories to publish to here.
+        // Notice: This block does NOT have the same function as the block in the top level.
+        // The repositories here will be used for publishing your artifact, not for
+        // retrieving dependencies.
         if (project.hasProperty('maven_repo')) {
             maven { url maven_repo }
         } else {
@@ -48,17 +93,36 @@ publishing {
     }
 }
 
+def ENV = System.getenv()
+
+def getShortMcVersion() {
+    return project.minecraft_version.substring(0, 4)
+}
+
+modrinth {
+    token = ENV.MODRINTH_TOKEN
+    projectId = 'xQgFileM'
+    versionNumber = "${project.mod_version}+${getShortMcVersion()}"
+    versionName = "[${getShortMcVersion()}] Right-Click-Harvest v${project.mod_version}"
+    versionType = 'release'
+    uploadFile = remapJar
+    gameVersions = ['1.18.2']
+    loaders = ['fabric']
+}
+
 curseforge {
-    if (project.hasProperty('curse_key_TehNut'))
-        apiKey = project.curse_key_TehNut
+    if (ENV.CURSEFORGE_TOKEN)
+        apiKey = ENV.CURSEFORGE_TOKEN
 
     project {
         id = "${curse_id}"
-        releaseType = 'release'
+        changelog = "A changelog can be found at https://github.com/koellecraft/Right-Click-Harvest/releases"
+        releaseType = "release"
 
-        addGameVersion "1.16.1"
-        addGameVersion "Java 8"
-        addArtifact sourcesJar
+        addGameVersion "1.18.2"
+        addGameVersion "Java 17"
+        addGameVersion "Fabric"
+
         mainArtifact(file("${project.buildDir}/libs/${archivesBaseName}-${version}.jar"))
 
         afterEvaluate {
